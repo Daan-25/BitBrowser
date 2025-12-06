@@ -1,0 +1,42 @@
+# Build directories
+build/
+build-*/
+out/
+bin/
+obj/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.ninja
+*.ninja_deps
+*.ninja_log
+compile_commands.json
+
+# Qt Creator user files
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.qmlproject.user
+*.qmlproject.user.*
+*.cmake.user
+*.creator
+*.creator.user
+*.user
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Windows deploy output
+plugins/
+resources/
+translations/
+QtWebEngineProcess.exe
+*.dll
