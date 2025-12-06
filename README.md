@@ -1,86 +1,61 @@
-\# BitBrowser
+# 🌐 BitBrowser
 
+A lightweight tabbed web browser built with **C++** and **Qt 6 WebEngine (Chromium)**.
 
+---
 
-A simple tabbed browser built with \*\*C++\*\* and \*\*Qt 6\*\* using \*\*Qt WebEngine\*\*.
+## ✨ Features
 
+- Multi-tab browsing
+- Address bar
+- Back / Forward / Reload
+- Home button
+- Keyboard shortcuts:
+  - **Ctrl + T** → New tab
+  - **Ctrl + W** → Close tab
+  - **Ctrl + L** → Focus address bar
 
+---
 
-\## Features
+## 🛠 Tech Stack
 
-\- Tab support
+- **C++**
+- **Qt 6 Widgets**
+- **Qt WebEngine (Chromium)**
+- **CMake**
+- **Ninja**
 
-\- Address bar
+---
 
-\- Back / Forward / Reload
+## ✅ Requirements (Windows)
 
-\- Home button
+Install:
 
-\- Shortcuts:
+- **Qt 6.10.1** (or newer)
+- Qt modules:
+  - **Widgets**
+  - **WebEngineWidgets**
+  - **WebChannel**
+  - **Positioning**
+- **MSVC 2022 x64**
+- **CMake**
+- **Ninja** (via Qt Tools)
 
-&nbsp; - \*\*Ctrl+T\*\*: New tab
+---
 
-&nbsp; - \*\*Ctrl+W\*\*: Close tab
+## 🚀 Build (Windows)
 
-&nbsp; - \*\*Ctrl+L\*\*: Focus address bar
+Open **x64 Developer Command Prompt** (Visual Studio):
 
-
-
-\## Tech
-
-\- C++
-
-\- Qt 6 Widgets
-
-\- Qt WebEngine (Chromium)
-
-
-
-\## Requirements (Windows)
-
-\- \*\*Qt 6.10.1\*\*
-
-\- Modules:
-
-&nbsp; - `Widgets`
-
-&nbsp; - `WebEngineWidgets`
-
-&nbsp; - `WebChannel`
-
-&nbsp; - `Positioning`
-
-\- \*\*MSVC 2022 x64\*\*
-
-\- CMake + Ninja (via Qt Tools)
-
-
-
-\## Build (Windows)
-
-
-
-Open \*\*x64 Developer Command Prompt\*\* (Visual Studio):
-
-
-
-```bat
-
-cd C:\\Users\\REPLACE\\Documents\\BitBrowser
-
-
+```bash
+cd C:\Users\REPLACE\Documents\BitBrowser
 
 rmdir /s /q build
-
 mkdir build
+cd build
 
+cmake -G "Ninja" .. ^
+  -DCMAKE_PREFIX_PATH="C:\Qt\6.10.1\msvc2022_64"
 
-
-"C:\\Qt\\Tools\\CMake\_64\\bin\\cmake.exe" -S . -B build -G Ninja ^
-
--DCMAKE\_PREFIX\_PATH=C:\\Qt\\6.10.1\\msvc2022\_64
-
-
-
-"C:\\Qt\\Tools\\CMake\_64\\bin\\cmake.exe" --build build
-
+ninja
+.\BitBrowser.exe
