@@ -21,10 +21,15 @@ qt_standard_project_setup()
 
 qt_add_executable(BitBrowser
     WIN32
-    MACOSX_BUNDLE
     main.cpp
     mainwindow.h
     mainwindow.cpp
+    historydialog.h
+    historydialog.cpp
+    bookmarksdialog.h
+    bookmarksdialog.cpp
+    bookmarksdialog.h
+    bookmarksdialog.cpp
 )
 
 target_link_libraries(BitBrowser PRIVATE
