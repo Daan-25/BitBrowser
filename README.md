@@ -1,4 +1,4 @@
-\# BitBrowser
+# BitBrowser
 
 
 
@@ -6,17 +6,17 @@ A simple tabbed browser built with \*\*C++\*\* and \*\*Qt 6\*\* using \*\*Qt Web
 
 
 
-\## Features
+## Features
 
-\- Tab support
+- Tab support
 
-\- Address bar
+- Address bar
 
-\- Back / Forward / Reload
+- Back / Forward / Reload
 
-\- Home button
+- Home button
 
-\- Shortcuts:
+- Shortcuts:
 
 &nbsp; - \*\*Ctrl+T\*\*: New tab
 
@@ -26,21 +26,21 @@ A simple tabbed browser built with \*\*C++\*\* and \*\*Qt 6\*\* using \*\*Qt Web
 
 
 
-\## Tech
+## Tech
 
-\- C++
+- C++
 
-\- Qt 6 Widgets
+- Qt 6 Widgets
 
-\- Qt WebEngine (Chromium)
+- Qt WebEngine (Chromium)
 
 
 
-\## Requirements (Windows)
+## Requirements (Windows)
 
-\- \*\*Qt 6.10.1\*\*
+- \*\*Qt 6.10.1\*\*
 
-\- Modules:
+- Modules:
 
 &nbsp; - `Widgets`
 
@@ -50,13 +50,13 @@ A simple tabbed browser built with \*\*C++\*\* and \*\*Qt 6\*\* using \*\*Qt Web
 
 &nbsp; - `Positioning`
 
-\- \*\*MSVC 2022 x64\*\*
+- \*\*MSVC 2022 x64\*\*
 
-\- CMake + Ninja (via Qt Tools)
+- CMake + Ninja (via Qt Tools)
 
 
 
-\## Build (Windows)
+## Build (Windows)
 
 
 
