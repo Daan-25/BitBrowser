@@ -76,7 +76,7 @@ mkdir build
 
 
 
-"C:\QtToolsCMake_64bincmake.exe" -S . -B build -G Ninja ^
+"C:\QtToolsCMake_64\bin\cmake.exe" -S . -B build -G Ninja ^
 
 -DCMAKE_PREFIX_PATH=C:Qt6.10.1msvc2022_64
 
