@@ -1,10 +1,10 @@
-# 🌐 BitBrowser
+# BitBrowser
 
 A lightweight tabbed web browser built with **C++** and **Qt 6 WebEngine (Chromium)**.
 
 ---
 
-## ✨ Features
+## Features
 
 - Multi-tab browsing
 - Address bar
@@ -17,7 +17,7 @@ A lightweight tabbed web browser built with **C++** and **Qt 6 WebEngine (Chromi
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 - **C++**
 - **Qt 6 Widgets**
@@ -27,7 +27,7 @@ A lightweight tabbed web browser built with **C++** and **Qt 6 WebEngine (Chromi
 
 ---
 
-## ✅ Requirements (Windows)
+## Requirements (Windows)
 
 Install:
 
@@ -43,7 +43,7 @@ Install:
 
 ---
 
-## 🚀 Build (Windows)
+## Build (Windows)
 
 Open **x64 Developer Command Prompt** (Visual Studio):
 
