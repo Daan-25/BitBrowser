@@ -32,18 +32,12 @@ ExtensionsPage::ExtensionsPage(QWebEngineProfile *profile, QWidget *parent)
         return;
     }
 
-    // ✅ Alleen signals gebruiken, geen listing
     connect(m_mgr, &QWebEngineExtensionManager::installFinished,
             this, &ExtensionsPage::onInstallFinished);
     connect(m_mgr, &QWebEngineExtensionManager::loadFinished,
             this, &ExtensionsPage::onLoadFinished);
 
-    if (kQt6101) {
-        setStatus("Qt 6.10.1 safe mode: listing disabled to avoid crashes. "
-                  "Use the buttons to test MV3 extensions.");
-    } else {
-        setStatus("Ready to install/load extensions.");
-    }
+    applyQt6101GuardUi();
 }
 
 void ExtensionsPage::setupUi()
@@ -56,10 +50,15 @@ void ExtensionsPage::setupUi()
     f.setBold(true);
     m_title->setFont(f);
 
+    m_warning = new QLabel(this);
+    m_warning->setWordWrap(true);
+    m_warning->hide();
+
     m_status = new QLabel(this);
     m_status->setWordWrap(true);
 
     root->addWidget(m_title);
+    root->addWidget(m_warning);
     root->addWidget(m_status);
 
     auto *row = new QHBoxLayout();
@@ -81,6 +80,35 @@ void ExtensionsPage::setupUi()
     connect(m_loadTempBtn, &QPushButton::clicked, this, &ExtensionsPage::loadTemporary);
 }
 
+void ExtensionsPage::applyQt6101GuardUi()
+{
+    if (!kQt6101) {
+        setStatus("Ready to install/load Manifest V3 extensions.");
+        return;
+    }
+
+    m_warning->setText(
+        "⚠ Extensions are disabled on <b>Qt 6.10.1</b> to prevent crashes.<br>"
+        "Install or load is known to be unstable in this patch.<br><br>"
+        "To test extensions, switch your kit to <b>Qt 6.10.0</b> (or newer stable patch)."
+        );
+    m_warning->setStyleSheet(
+        "QLabel {"
+        " background: #2b1d00;"
+        " color: #ffd08a;"
+        " padding: 10px;"
+        " border-radius: 6px;"
+        "}"
+        );
+    m_warning->show();
+
+    m_installUnpackedBtn->setEnabled(false);
+    m_installZipBtn->setEnabled(false);
+    m_loadTempBtn->setEnabled(false);
+
+    setStatus("Extensions disabled for safety on Qt 6.10.1.");
+}
+
 void ExtensionsPage::setStatus(const QString &text)
 {
     if (m_status) m_status->setText(text);
@@ -89,6 +117,7 @@ void ExtensionsPage::setStatus(const QString &text)
 void ExtensionsPage::installUnpacked()
 {
     if (!m_mgr) return;
+    if (kQt6101) return;
 
     const QString dir = QFileDialog::getExistingDirectory(
         this, "Select extension folder (contains manifest.json)");
@@ -102,6 +131,7 @@ void ExtensionsPage::installUnpacked()
 void ExtensionsPage::installZip()
 {
     if (!m_mgr) return;
+    if (kQt6101) return;
 
     const QString zip = QFileDialog::getOpenFileName(
         this, "Select extension .zip", QString(), "Zip (*.zip)");
@@ -115,6 +145,7 @@ void ExtensionsPage::installZip()
 void ExtensionsPage::loadTemporary()
 {
     if (!m_mgr) return;
+    if (kQt6101) return;
 
     const QString dir = QFileDialog::getExistingDirectory(
         this, "Select extension folder (temporary load)");
@@ -127,6 +158,8 @@ void ExtensionsPage::loadTemporary()
 
 void ExtensionsPage::onInstallFinished(const QWebEngineExtensionInfo &info)
 {
+    if (kQt6101) return;
+
     if (!info.error().isEmpty()) {
         setStatus("Install failed: " + info.error());
         QMessageBox::warning(this, "Extension install failed", info.error());
@@ -134,12 +167,13 @@ void ExtensionsPage::onInstallFinished(const QWebEngineExtensionInfo &info)
     }
 
     if (m_mgr) m_mgr->setExtensionEnabled(info, true);
-
     setStatus("Installed and enabled: " + info.name());
 }
 
 void ExtensionsPage::onLoadFinished(const QWebEngineExtensionInfo &info)
 {
+    if (kQt6101) return;
+
     if (!info.error().isEmpty()) {
         setStatus("Load failed: " + info.error());
         QMessageBox::warning(this, "Extension load failed", info.error());
@@ -147,6 +181,5 @@ void ExtensionsPage::onLoadFinished(const QWebEngineExtensionInfo &info)
     }
 
     if (m_mgr) m_mgr->setExtensionEnabled(info, true);
-
     setStatus("Loaded temporary and enabled: " + info.name());
 }

@@ -26,12 +26,14 @@ private slots:
 private:
     void setupUi();
     void setStatus(const QString &text);
+    void applyQt6101GuardUi();
 
 private:
     QWebEngineProfile *m_profile = nullptr; // non-owning
     QWebEngineExtensionManager *m_mgr = nullptr;
 
     QLabel *m_title = nullptr;
+    QLabel *m_warning = nullptr;
     QLabel *m_status = nullptr;
 
     QPushButton *m_installUnpackedBtn = nullptr;
