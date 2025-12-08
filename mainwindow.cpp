@@ -1,4 +1,6 @@
 #include "mainwindow.h"
+#include "extensionmanagerdialog.h"
+#include "extensionspage.h"
 
 #include <QTabWidget>
 #include <QToolBar>
@@ -7,8 +9,18 @@
 #include <QShortcut>
 #include <QKeySequence>
 #include <QMenuBar>
+#include <QMenu>
+#include <QCloseEvent>
 
 #include <QWebEngineView>
+#include <QWebEngineProfile>
+#include <QWebEnginePage>
+
+#include <QWebEngineExtensionManager>
+#include <QWebEngineExtensionInfo>
+
+#include <QFileDialog>
+#include <QMessageBox>
 
 #include <QFile>
 #include <QDir>
@@ -17,42 +29,53 @@
 #include <QJsonDocument>
 #include <QStandardPaths>
 #include <QDateTime>
-#include <QCloseEvent>
-#include <QMenu>
+
 #include <QDialog>
 #include <QVBoxLayout>
 #include <QPlainTextEdit>
 
-#include <QWebEngineProfile>
-#include <QWebEnginePage>
-
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    loadHistory();
-    loadBookmarks();
-
     setupUi();
-    connectSignals();
 
-    loadSession();
+    // ✅ Eigen persistente profile (NIET defaultProfile)
+    browserProfile = new QWebEngineProfile("BitBrowserProfile", this);
 
     const QString base =
         QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
         + "/webengine";
 
     QDir().mkpath(base);
-    QDir().mkpath(base + "/cache");
 
-    browserProfile = new QWebEngineProfile(this);
-    browserProfile->setPersistentStoragePath(base);
+    browserProfile->setPersistentStoragePath(base + "/storage");
     browserProfile->setCachePath(base + "/cache");
     browserProfile->setPersistentCookiesPolicy(QWebEngineProfile::AllowPersistentCookies);
     browserProfile->setHttpCacheType(QWebEngineProfile::DiskHttpCache);
 
+    // Extension manager
+    extensionManager = browserProfile->extensionManager();
+    if (extensionManager) {
+        connect(extensionManager, &QWebEngineExtensionManager::installFinished,
+                this, &MainWindow::onExtensionInstallFinished);
+        connect(extensionManager, &QWebEngineExtensionManager::loadFinished,
+                this, &MainWindow::onExtensionLoadFinished);
+    }
+
+    loadHistory();
+    loadBookmarks();
+    rebuildBookmarksMenu();
+
+    connectSignals();
+
+    loadSession();
+
     if (tabs->count() == 0) {
         createTab(QUrl("https://www.google.com"));
     }
+
+    syncAddressBarWithCurrentTab();
+    updateBookmarkStar();
 }
 
 void MainWindow::setupUi()
@@ -60,14 +83,12 @@ void MainWindow::setupUi()
     setWindowTitle("BitBrowser");
     resize(1200, 800);
 
-    // Tabs als centrale widget
     tabs = new QTabWidget(this);
     tabs->setDocumentMode(true);
     tabs->setTabsClosable(true);
     tabs->setMovable(true);
     setCentralWidget(tabs);
 
-    // Toolbar
     auto *toolbar = addToolBar("Navigation");
     toolbar->setMovable(false);
 
@@ -86,34 +107,28 @@ void MainWindow::setupUi()
     bookmarkStarAction = toolbar->addAction("☆");
     bookmarkStarAction->setToolTip("Toggle bookmark for current page");
 
-    // Adres
     addressBar = new QLineEdit(this);
     addressBar->setPlaceholderText("Type a URL and press Enter...");
     toolbar->addWidget(addressBar);
 
-    // Menu
+    // History menu
     auto *historyMenu = menuBar()->addMenu("History");
     historyAction = historyMenu->addAction("Show History");
     clearHistoryAction = historyMenu->addAction("Clear History");
-
-    auto *bookmarksMenuLocal = menuBar()->addMenu("Bookmarks");
-    bookmarksMenu = bookmarksMenuLocal;
-
-    showBookmarksAction = bookmarksMenu->addAction("Show Bookmarks");
-    clearBookmarksAction = bookmarksMenu->addAction("Clear Bookmarks");
-
-    showBookmarksAction->setShortcut(QKeySequence("Ctrl+Shift+B"));
-
-    bookmarksSeparator = bookmarksMenu->addSeparator();
-
-    rebuildBookmarksMenu();
-
-    showBookmarksAction->setShortcut(QKeySequence("Ctrl+Shift+B"));
+    historyAction->setShortcut(QKeySequence("Ctrl+H"));
 
     auto *sessionMenu = historyMenu->addMenu("Session");
     clearSessionAction = sessionMenu->addAction("Clear Saved Session");
 
-    historyAction->setShortcut(QKeySequence("Ctrl+H"));
+    // Bookmarks menu
+    bookmarksMenu = menuBar()->addMenu("Bookmarks");
+    showBookmarksAction = bookmarksMenu->addAction("Show Bookmarks");
+    clearBookmarksAction = bookmarksMenu->addAction("Clear Bookmarks");
+    showBookmarksAction->setShortcut(QKeySequence("Ctrl+Shift+B"));
+    bookmarksSeparator = bookmarksMenu->addSeparator();
+
+    // Extensions menu
+    setupExtensionsMenu();
 
     // Shortcuts
     new QShortcut(QKeySequence::AddTab, this, [this]() { createTab(); });
@@ -127,6 +142,22 @@ void MainWindow::setupUi()
     });
 }
 
+void MainWindow::setupExtensionsMenu()
+{
+    extensionsMenu = menuBar()->addMenu("Extensions");
+
+    openInternalExtensionsAction = extensionsMenu->addAction("Open bit://extensions");
+    extensionsMenu->addSeparator();
+
+    manageExtensionsAction = extensionsMenu->addAction("Manage Extensions...");
+    extensionsMenu->addSeparator();
+
+    installUnpackedAction = extensionsMenu->addAction("Install unpacked...");
+    installZipAction = extensionsMenu->addAction("Install from .zip...");
+    extensionsMenu->addSeparator();
+    loadTempAction = extensionsMenu->addAction("Load unpacked (temporary)...");
+}
+
 void MainWindow::connectSignals()
 {
     connect(backAction, &QAction::triggered, this, [this]() {
@@ -138,20 +169,17 @@ void MainWindow::connectSignals()
     connect(reloadAction, &QAction::triggered, this, [this]() {
         if (auto *v = currentView()) v->reload();
     });
-
     connect(homeAction, &QAction::triggered, this, [this]() {
         if (auto *v = currentView()) v->load(QUrl("https://www.google.com"));
     });
 
-    connect(newTabAction, &QAction::triggered, this, [this]() {
-        createTab();
-    });
-
-    connect(closeTabAction, &QAction::triggered, this, [this]() {
-        closeCurrentTab();
-    });
+    connect(newTabAction, &QAction::triggered, this, [this]() { createTab(); });
+    connect(closeTabAction, &QAction::triggered, this, [this]() { closeCurrentTab(); });
 
     connect(addressBar, &QLineEdit::returnPressed, this, &MainWindow::navigateToAddressBar);
+
+    connect(historyAction, &QAction::triggered, this, &MainWindow::showHistoryDialog);
+    connect(clearHistoryAction, &QAction::triggered, this, &MainWindow::clearHistory);
 
     connect(clearSessionAction, &QAction::triggered, this, &MainWindow::clearSession);
 
@@ -159,65 +187,115 @@ void MainWindow::connectSignals()
     connect(showBookmarksAction, &QAction::triggered, this, &MainWindow::showBookmarksDialog);
     connect(clearBookmarksAction, &QAction::triggered, this, &MainWindow::clearBookmarks);
 
-    // Tab events
+    // Extensions
+    if (openInternalExtensionsAction)
+        connect(openInternalExtensionsAction, &QAction::triggered,
+                this, &MainWindow::openExtensionsInternalPage);
+
+    if (manageExtensionsAction)
+        connect(manageExtensionsAction, &QAction::triggered,
+                this, &MainWindow::showExtensionsManager);
+
+    if (installUnpackedAction)
+        connect(installUnpackedAction, &QAction::triggered,
+                this, &MainWindow::installUnpackedExtension);
+
+    if (installZipAction)
+        connect(installZipAction, &QAction::triggered,
+                this, &MainWindow::installZippedExtension);
+
+    if (loadTempAction)
+        connect(loadTempAction, &QAction::triggered,
+                this, &MainWindow::loadUnpackedTempExtension);
+
+    // Tabs
     connect(tabs, &QTabWidget::currentChanged, this, [this](int) {
         syncAddressBarWithCurrentTab();
+        updateBookmarkStar();
     });
 
     connect(tabs, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTabByIndex);
+}
 
-    // History actions
-    connect(historyAction, &QAction::triggered, this, &MainWindow::showHistoryDialog);
-    connect(clearHistoryAction, &QAction::triggered, this, &MainWindow::clearHistory);
+bool MainWindow::isExtensionsText(const QString &text) const
+{
+    const QString s = text.trimmed().toLower();
+    return s == "bit://extensions" || s.startsWith("bit://extensions/");
+}
+
+void MainWindow::openExtensionsInternalPage()
+{
+    if (!browserProfile) {
+        QMessageBox::warning(this, "Extensions", "Browser profile not initialized.");
+        return;
+    }
+
+    // Al open?
+    for (int i = 0; i < tabs->count(); ++i) {
+        if (tabs->tabText(i) == "Extensions") {
+            tabs->setCurrentIndex(i);
+            addressBar->setText("bit://extensions");
+            return;
+        }
+    }
+
+    auto *page = new ExtensionsPage(browserProfile, tabs);
+    int index = tabs->addTab(page, "Extensions");
+    tabs->setCurrentIndex(index);
+
+    addressBar->setText("bit://extensions");
 }
 
 QWebEngineView* MainWindow::createTab(const QUrl &url)
 {
+    const QString s = url.toString().trimmed();
+    if (isExtensionsText(s)) {
+        openExtensionsInternalPage();
+        return nullptr;
+    }
+
     auto *view = new QWebEngineView(tabs);
+
+    // ✅ Gebruik altijd jouw persistente profile
     auto *page = new QWebEnginePage(browserProfile, view);
     view->setPage(page);
+
+    view->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(view, &QWidget::customContextMenuRequested, this, [this, view](const QPoint &pos) {
+        QMenu menu;
+
+        menu.addAction(view->page()->action(QWebEnginePage::Back));
+        menu.addAction(view->page()->action(QWebEnginePage::Forward));
+        menu.addAction(view->page()->action(QWebEnginePage::Reload));
+
+        menu.addSeparator();
+
+        menu.addAction(view->page()->action(QWebEnginePage::Copy));
+        menu.addAction(view->page()->action(QWebEnginePage::SelectAll));
+
+        menu.addSeparator();
+
+        QAction *sourceAction = menu.addAction("View Page Source");
+        connect(sourceAction, &QAction::triggered, this, [this, view]() {
+            showPageSource(view);
+        });
+
+        menu.exec(view->mapToGlobal(pos));
+    });
 
     int index = tabs->addTab(view, "New Tab");
     tabs->setCurrentIndex(index);
 
     connect(view, &QWebEngineView::titleChanged, this, [this, view](const QString &title) {
         int i = tabs->indexOf(view);
-        if (i != -1) {
+        if (i != -1)
             tabs->setTabText(i, title.isEmpty() ? "New Tab" : title.left(40));
-            syncAddressBarWithCurrentTab();
-            updateBookmarkStar();
-        }
 
         if (view == currentView()) {
-            setWindowTitle((title.isEmpty() ? "BitBrowser" : title) + " - BitBrowser");
+            syncAddressBarWithCurrentTab();
             updateBookmarkStar();
+            setWindowTitle((title.isEmpty() ? "BitBrowser" : title) + " - BitBrowser");
         }
-
-        view->setContextMenuPolicy(Qt::CustomContextMenu);
-
-        connect(view, &QWidget::customContextMenuRequested, this, [this, view](const QPoint &pos) {
-            QMenu menu;
-
-            // Basic navigation
-            menu.addAction(view->page()->action(QWebEnginePage::Back));
-            menu.addAction(view->page()->action(QWebEnginePage::Forward));
-            menu.addAction(view->page()->action(QWebEnginePage::Reload));
-
-            menu.addSeparator();
-
-            // Editing (handy)
-            menu.addAction(view->page()->action(QWebEnginePage::Copy));
-            menu.addAction(view->page()->action(QWebEnginePage::SelectAll));
-
-            menu.addSeparator();
-
-            QAction *sourceAction = menu.addAction("View Page Source");
-            connect(sourceAction, &QAction::triggered, this, [this, view]() {
-                showPageSource(view);
-            });
-
-            menu.exec(view->mapToGlobal(pos));
-        });
     });
 
     connect(view, &QWebEngineView::urlChanged, this, [this, view](const QUrl &newUrl) {
@@ -232,8 +310,7 @@ QWebEngineView* MainWindow::createTab(const QUrl &url)
         const QUrl u = view->url();
         if (!u.isValid() || u.toString().isEmpty()) return;
 
-        const QString t = view->title();
-        addHistoryEntry(u, t);
+        addHistoryEntry(u, view->title());
     });
 
     view->load(url);
@@ -247,31 +324,37 @@ QWebEngineView* MainWindow::currentView() const
 
 void MainWindow::navigateToAddressBar()
 {
-    auto *view = currentView();
-    if (!view) return;
+    const QString text = addressBar->text().trimmed();
 
-    const QUrl url = QUrl::fromUserInput(addressBar->text().trimmed());
-    view->load(url);
+    if (isExtensionsText(text)) {
+        openExtensionsInternalPage();
+        return;
+    }
+
+    const QUrl url = QUrl::fromUserInput(text);
+
+    if (auto *view = currentView()) {
+        view->load(url);
+    } else {
+        createTab(url);
+    }
 }
 
 void MainWindow::syncAddressBarWithCurrentTab()
 {
     auto *view = currentView();
     if (!view) {
-        addressBar->clear();
-        setWindowTitle("BitBrowser");
+        // interne tab actief
         return;
     }
-
     addressBar->setText(view->url().toString());
 }
 
-/* -------------------- Tabs close helpers -------------------- */
+/* ---------------- Tabs close helpers ---------------- */
 
 void MainWindow::closeCurrentTab()
 {
-    int index = tabs->currentIndex();
-    closeTabByIndex(index);
+    closeTabByIndex(tabs->currentIndex());
 }
 
 void MainWindow::closeTabByIndex(int index)
@@ -282,12 +365,11 @@ void MainWindow::closeTabByIndex(int index)
     tabs->removeTab(index);
     delete w;
 
-    if (tabs->count() == 0) {
-        createTab();
-    }
+    if (tabs->count() == 0)
+        createTab(QUrl("https://www.google.com"));
 }
 
-/* -------------------- History storage -------------------- */
+/* ---------------- History ---------------- */
 
 QString MainWindow::historyFilePath() const
 {
@@ -301,8 +383,8 @@ void MainWindow::loadHistory()
     history.clear();
 
     QFile f(historyFilePath());
-    if (!f.exists()) return;
-    if (!f.open(QIODevice::ReadOnly)) return;
+    if (!f.exists() || !f.open(QIODevice::ReadOnly))
+        return;
 
     const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
     f.close();
@@ -310,10 +392,8 @@ void MainWindow::loadHistory()
     if (!doc.isArray()) return;
 
     const QJsonArray arr = doc.array();
-    history.reserve(arr.size());
 
-    for (const auto &v : arr)
-    {
+    for (const auto &v : arr) {
         if (!v.isObject()) continue;
         const QJsonObject o = v.toObject();
 
@@ -325,6 +405,26 @@ void MainWindow::loadHistory()
         if (e.url.isValid())
             history.push_back(e);
     }
+}
+
+void MainWindow::saveHistory() const
+{
+    QJsonArray arr;
+
+    for (const auto &e : history) {
+        QJsonObject o;
+        o["url"] = e.url.toString();
+        o["title"] = e.title;
+        o["visitedAt"] = e.visitedAt.toString(Qt::ISODate);
+        arr.push_back(o);
+    }
+
+    QFile f(historyFilePath());
+    if (!f.open(QIODevice::WriteOnly))
+        return;
+
+    f.write(QJsonDocument(arr).toJson(QJsonDocument::Indented));
+    f.close();
 }
 
 void MainWindow::addHistoryEntry(const QUrl &url, const QString &title)
@@ -349,11 +449,8 @@ void MainWindow::showHistoryDialog()
     HistoryDialog dlg(history, this);
 
     connect(&dlg, &HistoryDialog::openUrlRequested, this, [this](const QUrl &url) {
-        if (auto *v = currentView()) {
-            v->load(url);
-        } else {
-            createTab(url);
-        }
+        if (auto *v = currentView()) v->load(url);
+        else createTab(url);
     });
 
     connect(&dlg, &HistoryDialog::clearRequested, this, [this]() {
@@ -366,30 +463,11 @@ void MainWindow::showHistoryDialog()
 void MainWindow::clearHistory()
 {
     history.clear();
-
     QFile::remove(historyFilePath());
     saveHistory();
 }
 
-void MainWindow::saveHistory() const
-{
-    QJsonArray arr;
-
-    for (const auto &e : history)
-    {
-        QJsonObject o;
-        o["url"] = e.url.toString();
-        o["title"] = e.title;
-        o["visitedAt"] = e.visitedAt.toString(Qt::ISODate);
-        arr.push_back(o);
-    }
-
-    QFile f(historyFilePath());
-    if (!f.open(QIODevice::WriteOnly)) return;
-
-    f.write(QJsonDocument(arr).toJson(QJsonDocument::Indented));
-    f.close();
-}
+/* ---------------- Session restore ---------------- */
 
 QString MainWindow::sessionFilePath() const
 {
@@ -401,8 +479,8 @@ QString MainWindow::sessionFilePath() const
 void MainWindow::loadSession()
 {
     QFile f(sessionFilePath());
-    if (!f.exists()) return;
-    if (!f.open(QIODevice::ReadOnly)) return;
+    if (!f.exists() || !f.open(QIODevice::ReadOnly))
+        return;
 
     const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
     f.close();
@@ -410,12 +488,10 @@ void MainWindow::loadSession()
     if (!doc.isArray()) return;
 
     const QJsonArray arr = doc.array();
-    for (const auto &v : arr)
-    {
+    for (const auto &v : arr) {
         const QUrl url(v.toString());
-        if (url.isValid() && !url.toString().isEmpty()) {
+        if (url.isValid() && !url.toString().isEmpty())
             createTab(url);
-        }
     }
 }
 
@@ -423,22 +499,34 @@ void MainWindow::saveSession() const
 {
     QJsonArray arr;
 
-    for (int i = 0; i < tabs->count(); ++i)
-    {
+    for (int i = 0; i < tabs->count(); ++i) {
         auto *view = qobject_cast<QWebEngineView*>(tabs->widget(i));
-        if (!view) continue;
+        if (!view) continue; // interne tabs skippen
 
         const QUrl url = view->url();
-        if (url.isValid() && !url.toString().isEmpty()) {
+        if (url.isValid() && !url.toString().isEmpty())
             arr.push_back(url.toString());
-        }
     }
 
     QFile f(sessionFilePath());
-    if (!f.open(QIODevice::WriteOnly)) return;
+    if (!f.open(QIODevice::WriteOnly))
+        return;
 
     f.write(QJsonDocument(arr).toJson(QJsonDocument::Indented));
     f.close();
+}
+
+void MainWindow::clearSession()
+{
+    QFile::remove(sessionFilePath());
+
+    while (tabs->count() > 0) {
+        QWidget *w = tabs->widget(0);
+        tabs->removeTab(0);
+        delete w;
+    }
+
+    createTab(QUrl("https://www.google.com"));
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -447,19 +535,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     QMainWindow::closeEvent(event);
 }
 
-void MainWindow::clearSession()
-{
-    QFile::remove(sessionFilePath());
-
-    while (tabs->count() > 0)
-    {
-        QWidget *w = tabs->widget(0);
-        tabs->removeTab(0);
-        delete w;
-    }
-
-    createTab(QUrl("https://www.google.com"));
-}
+/* ---------------- Bookmarks ---------------- */
 
 QString MainWindow::bookmarksFilePath() const
 {
@@ -473,8 +549,8 @@ void MainWindow::loadBookmarks()
     bookmarks.clear();
 
     QFile f(bookmarksFilePath());
-    if (!f.exists()) return;
-    if (!f.open(QIODevice::ReadOnly)) return;
+    if (!f.exists() || !f.open(QIODevice::ReadOnly))
+        return;
 
     const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
     f.close();
@@ -482,9 +558,7 @@ void MainWindow::loadBookmarks()
     if (!doc.isArray()) return;
 
     const QJsonArray arr = doc.array();
-
-    for (const auto &v : arr)
-    {
+    for (const auto &v : arr) {
         if (!v.isObject()) continue;
         const QJsonObject o = v.toObject();
 
@@ -495,15 +569,13 @@ void MainWindow::loadBookmarks()
         if (e.url.isValid())
             bookmarks.push_back(e);
     }
-    rebuildBookmarksMenu();
 }
 
 void MainWindow::saveBookmarks() const
 {
     QJsonArray arr;
 
-    for (const auto &e : bookmarks)
-    {
+    for (const auto &e : bookmarks) {
         QJsonObject o;
         o["url"] = e.url.toString();
         o["title"] = e.title;
@@ -511,7 +583,8 @@ void MainWindow::saveBookmarks() const
     }
 
     QFile f(bookmarksFilePath());
-    if (!f.open(QIODevice::WriteOnly)) return;
+    if (!f.open(QIODevice::WriteOnly))
+        return;
 
     f.write(QJsonDocument(arr).toJson(QJsonDocument::Indented));
     f.close();
@@ -520,8 +593,7 @@ void MainWindow::saveBookmarks() const
 bool MainWindow::isBookmarked(const QUrl &url) const
 {
     const QString u = url.toString();
-    for (const auto &b : bookmarks)
-    {
+    for (const auto &b : bookmarks) {
         if (b.url.toString() == u)
             return true;
     }
@@ -547,10 +619,8 @@ void MainWindow::removeBookmark(const QUrl &url)
 {
     const QString u = url.toString();
 
-    for (int i = 0; i < bookmarks.size(); ++i)
-    {
-        if (bookmarks[i].url.toString() == u)
-        {
+    for (int i = 0; i < bookmarks.size(); ++i) {
+        if (bookmarks[i].url.toString() == u) {
             bookmarks.removeAt(i);
             saveBookmarks();
             rebuildBookmarksMenu();
@@ -566,15 +636,12 @@ void MainWindow::toggleCurrentBookmark()
     if (!view) return;
 
     const QUrl url = view->url();
-    const QString title = view->title();
-
     if (!url.isValid() || url.toString().isEmpty()) return;
 
-    if (isBookmarked(url)) {
+    if (isBookmarked(url))
         removeBookmark(url);
-    } else {
-        addBookmark(url, title);
-    }
+    else
+        addBookmark(url, view->title());
 }
 
 void MainWindow::updateBookmarkStar()
@@ -587,8 +654,7 @@ void MainWindow::updateBookmarkStar()
         return;
     }
 
-    const QUrl url = view->url();
-    bookmarkStarAction->setText(isBookmarked(url) ? "★" : "☆");
+    bookmarkStarAction->setText(isBookmarked(view->url()) ? "★" : "☆");
 }
 
 void MainWindow::showBookmarksDialog()
@@ -596,13 +662,11 @@ void MainWindow::showBookmarksDialog()
     BookmarksDialog dlg(bookmarks, this);
 
     connect(&dlg, &BookmarksDialog::openUrlRequested, this, [this](const QUrl &url) {
-        if (auto *v = currentView())
-            v->load(url);
-        else
-            createTab(url);
+        if (auto *v = currentView()) v->load(url);
+        else createTab(url);
     });
 
-    connect(&dlg, &BookmarksDialog::removeUrlRequested, this, [this, &dlg](const QUrl &url) {
+    connect(&dlg, &BookmarksDialog::removeUrlRequested, this, [this](const QUrl &url) {
         removeBookmark(url);
     });
 
@@ -618,23 +682,21 @@ void MainWindow::clearBookmarks()
     bookmarks.clear();
     QFile::remove(bookmarksFilePath());
     saveBookmarks();
-    updateBookmarkStar();
     rebuildBookmarksMenu();
+    updateBookmarkStar();
 }
 
 void MainWindow::rebuildBookmarksMenu()
 {
     if (!bookmarksMenu) return;
 
-    for (auto *act : bookmarkItemActions)
-    {
+    for (auto *act : bookmarkItemActions) {
         bookmarksMenu->removeAction(act);
         delete act;
     }
     bookmarkItemActions.clear();
 
-    for (const auto &b : bookmarks)
-    {
+    for (const auto &b : bookmarks) {
         const QString title = b.title.isEmpty() ? b.url.toString() : b.title;
 
         QAction *act = new QAction(title, bookmarksMenu);
@@ -645,24 +707,23 @@ void MainWindow::rebuildBookmarksMenu()
             const QUrl url = act->data().toUrl();
             if (!url.isValid()) return;
 
-            if (auto *v = currentView())
-                v->load(url);
-            else
-                createTab(url);
+            if (auto *v = currentView()) v->load(url);
+            else createTab(url);
         });
 
         bookmarksMenu->addAction(act);
         bookmarkItemActions.push_back(act);
     }
 
-    if (bookmarks.isEmpty())
-    {
+    if (bookmarks.isEmpty()) {
         QAction *empty = new QAction("No bookmarks yet", bookmarksMenu);
         empty->setEnabled(false);
         bookmarksMenu->addAction(empty);
         bookmarkItemActions.push_back(empty);
     }
 }
+
+/* ---------------- Page Source ---------------- */
 
 void MainWindow::showPageSource(QWebEngineView *view)
 {
@@ -683,4 +744,86 @@ void MainWindow::showPageSource(QWebEngineView *view)
 
         dlg->show();
     });
+}
+
+/* ---------------- Extensions Menu Actions ---------------- */
+
+void MainWindow::showExtensionsManager()
+{
+    if (!browserProfile) {
+        QMessageBox::warning(this, "Extensions", "Browser profile not initialized.");
+        return;
+    }
+
+    ExtensionManagerDialog dlg(browserProfile, this);
+    dlg.exec();
+}
+
+void MainWindow::installUnpackedExtension()
+{
+    if (!extensionManager) {
+        QMessageBox::warning(this, "Extensions", "Extension manager not available.");
+        return;
+    }
+
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, "Select extension folder (contains manifest.json)");
+
+    if (dir.isEmpty()) return;
+
+    extensionManager->installExtension(dir);
+}
+
+void MainWindow::installZippedExtension()
+{
+    if (!extensionManager) {
+        QMessageBox::warning(this, "Extensions", "Extension manager not available.");
+        return;
+    }
+
+    const QString zip = QFileDialog::getOpenFileName(
+        this, "Select extension .zip", QString(), "Zip (*.zip)");
+
+    if (zip.isEmpty()) return;
+
+    extensionManager->installExtension(zip);
+}
+
+void MainWindow::loadUnpackedTempExtension()
+{
+    if (!extensionManager) {
+        QMessageBox::warning(this, "Extensions", "Extension manager not available.");
+        return;
+    }
+
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, "Select extension folder (temporary load)");
+
+    if (dir.isEmpty()) return;
+
+    extensionManager->loadExtension(dir);
+}
+
+void MainWindow::onExtensionInstallFinished(const QWebEngineExtensionInfo &info)
+{
+    if (!extensionManager) return;
+
+    if (!info.error().isEmpty()) {
+        QMessageBox::warning(this, "Extension install failed", info.error());
+        return;
+    }
+
+    extensionManager->setExtensionEnabled(info, true);
+}
+
+void MainWindow::onExtensionLoadFinished(const QWebEngineExtensionInfo &info)
+{
+    if (!extensionManager) return;
+
+    if (!info.error().isEmpty()) {
+        QMessageBox::warning(this, "Extension load failed", info.error());
+        return;
+    }
+
+    extensionManager->setExtensionEnabled(info, true);
 }

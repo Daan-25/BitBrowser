@@ -5,7 +5,6 @@
 #include <QUrl>
 
 #include "historydialog.h"
-
 #include "bookmarksdialog.h"
 
 class QTabWidget;
@@ -15,6 +14,13 @@ class QAction;
 class QCloseEvent;
 class QMenu;
 class QWebEngineProfile;
+class QWebEnginePage;
+class ExtensionManagerDialog;
+class ExtensionsPage;
+
+// Extensions
+class QWebEngineExtensionManager;
+class QWebEngineExtensionInfo;
 
 class MainWindow : public QMainWindow
 {
@@ -27,9 +33,12 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
+    // UI
     void setupUi();
     void connectSignals();
+    void setupExtensionsMenu();
 
+    // Tabs / navigation
     QWebEngineView* createTab(const QUrl &url = QUrl("https://www.google.com"));
     QWebEngineView* currentView() const;
 
@@ -38,7 +47,11 @@ private:
     void closeCurrentTab();
     void closeTabByIndex(int index);
 
-    void showPageSource(class QWebEngineView *view);
+    void showPageSource(QWebEngineView *view);
+
+    // Internal pages
+    bool isExtensionsText(const QString &text) const;
+    void openExtensionsInternalPage();
 
     // History
     void loadHistory();
@@ -67,10 +80,23 @@ private:
     void clearBookmarks();
     void rebuildBookmarksMenu();
 
+    // Extensions (menu actions)
+    void showExtensionsManager();
+
+private slots:
+    void installUnpackedExtension();
+    void installZippedExtension();
+    void loadUnpackedTempExtension();
+
+    void onExtensionInstallFinished(const QWebEngineExtensionInfo &info);
+    void onExtensionLoadFinished(const QWebEngineExtensionInfo &info);
+
 private:
+    // Core widgets
     QTabWidget *tabs = nullptr;
     QLineEdit *addressBar = nullptr;
 
+    // Toolbar actions
     QAction *backAction = nullptr;
     QAction *forwardAction = nullptr;
     QAction *reloadAction = nullptr;
@@ -78,22 +104,34 @@ private:
     QAction *newTabAction = nullptr;
     QAction *closeTabAction = nullptr;
 
+    // History actions/data
     QAction *historyAction = nullptr;
     QAction *clearHistoryAction = nullptr;
-    QAction *clearSessionAction = nullptr;
-
     QVector<HistoryEntry> history;
 
+    // Session action
+    QAction *clearSessionAction = nullptr;
+
+    // Bookmarks
     QAction *bookmarkStarAction = nullptr;
     QAction *showBookmarksAction = nullptr;
     QAction *clearBookmarksAction = nullptr;
-
     QVector<BookmarkEntry> bookmarks;
 
     QMenu *bookmarksMenu = nullptr;
     QAction *bookmarksSeparator = nullptr;
     QVector<QAction*> bookmarkItemActions;
 
-private:
-    QWebEngineProfile *browserProfile = nullptr;
+    // Extensions menu/actions
+    QMenu *extensionsMenu = nullptr;
+
+    QAction *openInternalExtensionsAction = nullptr;
+    QAction *manageExtensionsAction = nullptr;
+    QAction *installUnpackedAction = nullptr;
+    QAction *installZipAction = nullptr;
+    QAction *loadTempAction = nullptr;
+
+    // Browser profile + extensions
+    QWebEngineProfile *browserProfile = nullptr;            // owning
+    QWebEngineExtensionManager *extensionManager = nullptr; // from profile
 };
