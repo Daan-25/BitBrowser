@@ -32,6 +32,7 @@ ExtensionsPage::ExtensionsPage(QWebEngineProfile *profile, QWidget *parent)
         return;
     }
 
+    // Signals (alleen nuttig op niet-6.10.1)
     connect(m_mgr, &QWebEngineExtensionManager::installFinished,
             this, &ExtensionsPage::onInstallFinished);
     connect(m_mgr, &QWebEngineExtensionManager::loadFinished,
@@ -87,11 +88,12 @@ void ExtensionsPage::applyQt6101GuardUi()
         return;
     }
 
+    // Mooie waarschuwingstekst
     m_warning->setText(
         "⚠ Extensions are disabled on <b>Qt 6.10.1</b> to prevent crashes.<br>"
         "Install or load is known to be unstable in this patch.<br><br>"
         "To test extensions, switch your kit to <b>Qt 6.10.0</b> (or newer stable patch)."
-        );
+    );
     m_warning->setStyleSheet(
         "QLabel {"
         " background: #2b1d00;"
@@ -99,9 +101,10 @@ void ExtensionsPage::applyQt6101GuardUi()
         " padding: 10px;"
         " border-radius: 6px;"
         "}"
-        );
+    );
     m_warning->show();
 
+    // Knoppen uit
     m_installUnpackedBtn->setEnabled(false);
     m_installZipBtn->setEnabled(false);
     m_loadTempBtn->setEnabled(false);
