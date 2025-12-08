@@ -38,5 +38,6 @@ Thumbs.db
 plugins/
 resources/
 translations/
+dist/
 QtWebEngineProcess.exe
 *.dll
